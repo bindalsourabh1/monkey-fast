@@ -35,7 +35,7 @@
         <video id="video" class="w-full h-auto" autoplay muted></video>
       </div>
       <div class="mt-4 text-center">
-        <span id="countdown" class="inline-block bg-blue-500 text-white px-3 py-1 rounded-full text-lg">3</span>
+        <span id="countdown" class="inline-block bg-blue-500 text-white px-3 py-1 rounded-full text-lg">4</span>
         <p class="text-sm text-gray-600 mt-1">seconds until next capture</p>
       </div>
     </section>
@@ -48,7 +48,7 @@
         <div class="bg-gray-50 border border-gray-200 rounded p-4 text-center">
           <p class="text-gray-700 mb-2">Detection Result:</p>
           <div id="result" class="text-3xl font-bold text-gray-800 mb-2">Waiting…</div>
-          <p class="text-sm text-gray-500">Updates every 2 seconds</p>
+          <p class="text-sm text-gray-500">Updates every 4 seconds</p>
         </div>
       </section>
 
@@ -124,7 +124,7 @@
 
     // Timing constants
     const CAPTURE_INTERVAL = 2000; // ms
-    const COUNTDOWN_START = 3;    // seconds
+    const COUNTDOWN_START = 4;    // seconds
 
     let stream = null;
     let captureLoop = null;
