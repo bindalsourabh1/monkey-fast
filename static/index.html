@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Monkey Detection System</title>
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 font-sans">
+
+  <!-- HEADER -->
+  <header class="bg-gradient-to-r from-gray-700 to-gray-500 text-white p-6 shadow-md">
+    <div class="container mx-auto flex items-center justify-between">
+      <h1 class="text-2xl font-bold">Monkey Detection System on Raspberry Pi</h1>
+      <div class="space-x-3">
+        <button id="startBtn" class="px-4 py-2 bg-green-500 hover:bg-green-600 rounded shadow">
+          Camera Active
+        </button>
+        <button id="stopBtn" class="px-4 py-2 bg-red-500 hover:bg-red-600 rounded shadow">
+          Stop Detection
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="container mx-auto mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+    <!-- Video Feed + Countdown -->
+    <section class="md:col-span-2 bg-white rounded-lg shadow p-4">
+      <h2 class="text-xl font-semibold mb-4">Video Feed</h2>
+      <div class="border border-gray-300 rounded overflow-hidden max-w-md mx-auto">
+        <video id="video" class="w-full h-auto" autoplay muted></video>
+      </div>
+      <div class="mt-4 text-center">
+        <span id="countdown" class="inline-block bg-blue-500 text-white px-3 py-1 rounded-full text-lg">3</span>
+        <p class="text-sm text-gray-600 mt-1">seconds until next capture</p>
+      </div>
+    </section>
+
+    <!-- Right-hand Pane: Detection Results + Audio Settings -->
+    <div class="space-y-6">
+      <!-- Detection Results -->
+      <section class="bg-white rounded-lg shadow p-4">
+        <h2 class="text-xl font-semibold mb-4">Detection Results</h2>
+        <div class="bg-gray-50 border border-gray-200 rounded p-4 text-center">
+          <p class="text-gray-700 mb-2">Detection Result:</p>
+          <div id="result" class="text-3xl font-bold text-gray-800 mb-2">Waiting…</div>
+          <p class="text-sm text-gray-500">Updates every 2 seconds</p>
+        </div>
+      </section>
+
+      <!-- Audio Settings -->
+      <section class="bg-white rounded-lg shadow p-4">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-semibold">Audio Settings</h2>
+          <!-- Toggle Switch -->
+          <label class="inline-flex items-center cursor-pointer">
+            <span class="mr-2 text-gray-700">Sound Alert</span>
+            <input type="checkbox" id="alertToggle" class="sr-only" checked>
+            <div id="toggleBg" class="w-10 h-6 bg-blue-500 rounded-full relative transition-colors duration-200">
+              <div id="toggleCircle"
+                class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transform transition-transform duration-200">
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <div class="space-y-6">
+          <!-- Frequency -->
+          <div>
+            <div class="flex justify-between mb-1">
+              <label for="freqSlider" class="text-gray-700">Alert Frequency</label>
+              <span id="freqValue" class="text-blue-600 font-medium">1.0 kHz</span>
+            </div>
+            <input id="freqSlider" type="range" min="1" max="50" step="0.1" value="1.0"
+              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            <div class="flex justify-between text-xs text-gray-500 mt-1">
+              <span>1 kHz</span>
+              <span>50 kHz</span>
+            </div>
+          </div>
+
+          <!-- Volume -->
+          <div>
+            <div class="flex justify-between mb-1">
+              <label for="volSlider" class="text-gray-700">Alert Volume</label>
+              <span id="volValue" class="text-blue-600 font-medium">50 %</span>
+            </div>
+            <input id="volSlider" type="range" min="0" max="100" step="1" value="50"
+              class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            <div class="flex justify-between text-xs text-gray-500 mt-1">
+              <span>Mute</span>
+              <span>100 %</span>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- HIDDEN CANVAS -->
+  <canvas id="canvas" class="hidden"></canvas>
+
+  <!-- SCRIPT -->
+  <script>
+    // Element refs
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const result = document.getElementById('result');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const countdownEl = document.getElementById('countdown');
+
+    const alertToggle = document.getElementById('alertToggle');
+    const toggleBg = document.getElementById('toggleBg');
+    const toggleCircle = document.getElementById('toggleCircle');
+    const freqSlider = document.getElementById('freqSlider');
+    const freqValue = document.getElementById('freqValue');
+    const volSlider = document.getElementById('volSlider');
+    const volValue = document.getElementById('volValue');
+
+    // Timing constants
+    const CAPTURE_INTERVAL = 2000; // ms
+    const COUNTDOWN_START = 3;    // seconds
+
+    let stream = null;
+    let captureLoop = null;
+    let timerLoop = null;
+    let remaining = COUNTDOWN_START;
+
+    // Create a shared AudioContext
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Play a 2-second beep at given kHz & volume
+    function playBeep(khz, volume) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = khz * 1000; // convert kHz to Hz
+      gain.gain.value = volume;         // 0–1
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start();
+      setTimeout(() => {
+        osc.stop();
+        osc.disconnect();
+        gain.disconnect();
+      }, 1000);  // <-- 2 seconds
+    }
+
+    // Start camera + loops
+    async function startDetection() {
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+      }
+      if (!captureLoop) {
+        remaining = COUNTDOWN_START;
+        countdownEl.textContent = remaining;
+        captureLoop = setInterval(sendFrame, CAPTURE_INTERVAL);
+        timerLoop = setInterval(() => {
+          remaining = remaining - 1;
+          if (remaining <= 0) remaining = COUNTDOWN_START;
+          countdownEl.textContent = remaining;
+        }, 1000);
+      }
+    }
+
+    // Stop camera + loops
+    function stopDetection() {
+      if (captureLoop) { clearInterval(captureLoop); captureLoop = null; }
+      if (timerLoop) { clearInterval(timerLoop); timerLoop = null; }
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+        video.srcObject = null;
+      }
+      countdownEl.textContent = '-';
+    }
+
+    // Capture & send one frame to /predict
+    async function sendFrame() {
+      if (!stream) return;
+      const ctx = canvas.getContext('2d');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+
+      const start = Date.now(); // ⏱️ Start timing
+
+      try {
+        const res = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ image: dataUrl })
+        });
+
+        const json = await res.json();
+        result.textContent = json.prediction || 'Error';
+
+        console.log("Response time:", Date.now() - start, "ms");
+
+        if (alertToggle.checked && json.prediction.startsWith('1 - Monkey')) {
+          const khz = parseFloat(freqSlider.value);
+          const vol = parseInt(volSlider.value, 10) / 100;
+          playBeep(khz, vol);
+        }
+      } catch {
+        result.textContent = 'API Error';
+      }
+    }
+
+
+    // Toggle switch styling
+    alertToggle.addEventListener('change', () => {
+      const on = alertToggle.checked;
+      toggleBg.classList.toggle('bg-blue-500', on);
+      toggleBg.classList.toggle('bg-gray-500', !on);
+      toggleCircle.classList.toggle('translate-x-4', !on);
+    });
+
+    // Update frequency display
+    freqSlider.addEventListener('input', () => {
+      freqValue.textContent = `${parseFloat(freqSlider.value).toFixed(1)} kHz`;
+    });
+
+    // Update volume display
+    volSlider.addEventListener('input', () => {
+      volValue.textContent = `${volSlider.value} %`;
+    });
+
+    // Button handlers
+    startBtn.addEventListener('click', startDetection);
+    stopBtn.addEventListener('click', stopDetection);
+
+    // Auto-start on load
+    startDetection();
+  </script>
+</body>
+
+</html>
